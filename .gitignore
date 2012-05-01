@@ -22,3 +22,8 @@ local
 local/
 local.subdirs
 ccnx-xcode-project
+/javasrc/nbproject/private/
+/javasrc/dist/
+/javasrc/manifest.mf
+/javasrc/nbbuild.xml
+/javasrc/nbproject/
