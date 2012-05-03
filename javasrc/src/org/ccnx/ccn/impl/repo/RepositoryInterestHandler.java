@@ -35,6 +35,8 @@ import org.ccnx.ccn.protocol.ContentName;
 import org.ccnx.ccn.protocol.ContentObject;
 import org.ccnx.ccn.protocol.Interest;
 
+import org.ccnx.ccnmp.homeagent.HomeAgent;
+
 
 /**
  * Handles interests matching the repository's namespace.
@@ -47,11 +49,20 @@ import org.ccnx.ccn.protocol.Interest;
 public class RepositoryInterestHandler extends QueuedContentHandler<Interest> implements Runnable, CCNInterestHandler {
 	private final RepositoryServer _server;
 	private final CCNHandle _handle;
+	private final HomeAgent _homeAgent;
 	private boolean _shutdown = false;
 
 	public RepositoryInterestHandler(RepositoryServer server) {
 		_server = server;
 		_handle = server.getHandle();
+		
+		/**
+		 * If CCNMP is enabled, create HomeAgent member to handle Interests that
+		 * the RepositoryInterestHandler cannot service itself but that a mobile
+		 * node may be able to support.
+		 */
+		if(HomeAgent.ENABLED)
+			_homeAgent = new HomeAgent(_server, this);
 	}
 
 	public boolean handleInterest(Interest interest) {
@@ -117,6 +128,13 @@ public class RepositoryInterestHandler extends QueuedContentHandler<Interest> im
 			} else {
 				if (Log.isLoggable(Log.FAC_REPO, Level.FINE))
 					Log.fine(Log.FAC_REPO, "Unsatisfied interest: {0}", interest);
+				
+				/** 
+				 * If handler could not satisfy the Interest and CCNMP
+				 * is enabled, hand off to the HomeAgent to handle Interest.
+				 */
+				if(HomeAgent.ENABLED)
+					_homeAgent.handleInterest(interest);
 			}
 		} catch (Exception e) {
 			_server._stats.increment(RepositoryServer.StatsEnum.HandleInterestErrors);
