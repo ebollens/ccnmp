@@ -37,7 +37,7 @@ public class HomeAgent implements Runnable {
 	 * which becomes responsible for handling these Interests once the mobile 
 	 * node requests Interests outstanding for it.
 	 */
-	protected RemoteInterestHandler _remoteInterestHandler;
+	protected MobileInterestHandler _mobileInterestHandler;
 	
 	/**
 	 * Constructor for HomeAgent.
@@ -50,7 +50,7 @@ public class HomeAgent implements Runnable {
 			Log.finer(Log.FAC_REPO, "HomeAgent constructing");
 		_repositoryServer = server;
 		_repositoryInterestHandler = interestHandler;
-		_remoteInterestHandler = new RemoteInterestHandler(this);
+		_mobileInterestHandler = new MobileInterestHandler(this);
 	}
 	
 	/**
@@ -71,7 +71,7 @@ public class HomeAgent implements Runnable {
 	public boolean handleInterest(Interest interest) {
 		if (Log.isLoggable(Log.FAC_REPO, Level.FINER))
 			Log.finer(Log.FAC_REPO, "HomeAgent handling: {0}", interest.name());
-		_remoteInterestHandler.handleInterest(interest);
+		_mobileInterestHandler.handleInterest(interest);
 		return false;
 	}
 
