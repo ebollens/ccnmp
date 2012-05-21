@@ -9,6 +9,7 @@ import org.ccnx.ccn.impl.support.Log;
 import org.ccnx.ccn.protocol.Component;
 import org.ccnx.ccn.protocol.ContentName;
 import org.ccnx.ccn.protocol.Interest;
+import org.ccnx.ccn.protocol.MalformedContentNameStringException;
 
 /**
  * RemoteInterestHandler is responsible for queuing Interest that could not be
@@ -18,6 +19,12 @@ import org.ccnx.ccn.protocol.Interest;
  * @author ebollens
  */
 public class MobileInterestHandler implements Runnable, CCNInterestHandler {
+	
+	public static final String COMMAND_ROOT = "ccnmp";
+	public static final String COMMAND_REGISTER = "rg";
+	public static final String COMMAND_REDIRECT = "rd";
+	public static final String COMMAND_REGISTERREDIRECT = "rr";
+	public static final String COMMAND_REMOVE = "rm";
 
 	/**
 	 * Reference to the HomeAgent that instantiated this object.
@@ -64,39 +71,73 @@ public class MobileInterestHandler implements Runnable, CCNInterestHandler {
 		if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
 			Log.finest(Log.FAC_REPO, "RemoteInterestHandler handling: {0}", interest.name());
 		
-		Component component = new Component("ccnmp");
+		Component component = new Component(COMMAND_ROOT);
 		int idx;
 		
-		if((idx = interest.name().containsWhere(component)) > -1){
+		if((idx = interest.name().containsWhere(component)) > -1 &&
+			idx + 2 < interest.name().count()){
 			
-			// For {A}/ccnmp/{B}, namespace is {A}
+			// For {A}/ccnmp/<command>/{B}, namespace is {A}, remoteName is {B}
 			ContentName namespace = interest.name().cut(idx);
+			String command = interest.name().stringComponent(idx+1);
+			ContentName remoteName = interest.name().right(idx+2);
 			
 			if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
-				Log.finest(Log.FAC_REPO, "RemoteInterestHandler::handleInterest will process: {0} -> {1}", interest.name(), namespace);
+				Log.finest(Log.FAC_REPO, "RemoteInterestHandler::handleInterest will process: {0} -> {1} ; {2} ; {3}", interest.name(), namespace, command, remoteName);
 			
-			if(_interestStore.containsNamespace(namespace)){
+			if (command.compareTo(COMMAND_REGISTER) == 0) {
+				/** @todo the argument can also be isStoringEnabled */
+				if (!_interestStore.containsNamespace(namespace)) {
+					this.registerNamespace(namespace);
+				}
+			}
+			else if (command.compareTo(COMMAND_REDIRECT) == 0){
+				if(_interestStore.containsNamespace(namespace)){
+					
+					//_interestStore.setRemoteName(namespace, remoteName);
+					
+					/** 
+					 * given {A}/ccnmp/{B}, issue all interests in {A} stored
+					 * in the _interestStore to the namespace defined as {B} such
+					 * that {A}/{C} is remapped to {B}/{C}
+					 */
+					Vector<Interest> interests = _interestStore.getInterest(namespace);
+					for (Interest orginalInterest : interests)
+					{
+						/** 
+						 * @todo remake Interest and send
+						 * this section should probably go into a subroutine
+						 */ 
+						ContentName newName = remoteName.append(orginalInterest.name().postfix(namespace));
+						//String newNameString = remoteName.toString().concat(orginalInterest.name().postfix(namespace).toString());
+						
+						if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
+							Log.finest(Log.FAC_REPO, "RemoteInterestHandler translate {0} into {1} and send", orginalInterest.name(), newName);
+					}
 				
-				/** 
-				 * @todo given {A}/ccnmp/{B}, issue all interests in {A} stored
-				 * in the _interestStore to the namespace defined as {B} such
-				 * that {A}/{C} is remapped to {B}/{C}
-				 */
+				}else{
+					
+					// Do nothing if the namespace is not registered
+					
+					if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
+						Log.finest(Log.FAC_REPO, "RemoteInterestHandler does not support CCNMP for namespace: {0}", namespace);
 				
-				if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
-					Log.finest(Log.FAC_REPO, "RemoteInterestHandler supports CCNMP for namespace: {0}", namespace);
-			
-			}else{
+				}
+			}
+			else if (command.compareTo(COMMAND_REMOVE) == 0) {
 				
-				// Do nothing if the namespace is not registered
-				
-				if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
-					Log.finest(Log.FAC_REPO, "RemoteInterestHandler does not support CCNMP for namespace: {0}", namespace);
-			
+			}
+			else {
+				if (Log.isLoggable(Log.FAC_REPO, Level.FINE))
+					Log.finest(Log.FAC_REPO, "RemoteInterestHandler has encountered invalid command: {0}", command);
 			}
 			
-		}else{
 			
+		}else{
+
+			/** 
+			 * @todo we should do a longest prefix matching here, not shortest
+			 */
 			for(int i = 0; i < interest.getContentName().count(); i++){
 				
 				ContentName namespace = interest.getContentName().cut(i);

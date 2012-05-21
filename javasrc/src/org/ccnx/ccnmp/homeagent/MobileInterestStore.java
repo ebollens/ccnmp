@@ -18,17 +18,60 @@ import org.ccnx.ccn.protocol.Interest;
  * @author ebollens
  */
 public class MobileInterestStore {
+
+	/**
+	 * Data structure that a namespace to mapped to
+	 */
+	protected static class MobileInterestData {
+		/**
+		 * Whether the HomeAgent should store interest
+		 */
+		protected boolean _isStoringEnabled;
+		/**
+		 * The remote namespace (on foreign agent) of the namespace
+		 */
+		protected ContentName _remoteName;
+		/**
+		 * The stored interests for the namespace
+		 */
+		protected Vector<Interest> _interests;
+		
+		public MobileInterestData() {
+			this(true);
+		}
+		
+		/** @todo  may replace null with empty name */
+		public MobileInterestData(boolean isStoringEnabled) {
+			_isStoringEnabled = isStoringEnabled;
+			_remoteName = null;
+			_interests = new Vector<Interest>();
+		}
+		
+		public MobileInterestData(boolean isStoringEnabled, ContentName remoteName) {
+			_isStoringEnabled = isStoringEnabled;
+			_remoteName = new ContentName(remoteName);
+			_interests = new Vector<Interest>();
+		}
+		
+		public boolean isStoringEnabled() { return _isStoringEnabled; }
+		public void isStoringEnabled(boolean isStoringEnabled) { _isStoringEnabled = isStoringEnabled; }
+		
+		public ContentName remoteName() { return _remoteName; }
+		public void remoteName(ContentName remoteName) { _remoteName = new ContentName(remoteName); }
+		
+		public Vector<Interest> interests() { return _interests; }
+	}
 	
 	/**
-	 * HashMap containing Vector<Interest> objects mspped to namespaces as keys
+	 * HashMap containing Vector<Interest> objects mapped to namespaces as keys
 	 */
-	protected HashMap _map;
+	protected HashMap<String, MobileInterestData> _map;
 	
 	/**
 	 * Constructor for MobileInterestStore.
 	 */
 	public MobileInterestStore(){
-		_map = new HashMap();
+		_map = new HashMap<String, MobileInterestData>();
 	}
 	
 	/**
@@ -46,7 +89,7 @@ public class MobileInterestStore {
 	 * @param key 
 	 */
 	public void addNamespace(String key){
-		_map.put(key, new Vector<Interest>());
+		_map.put(key, new MobileInterestData());
 	}
 	
 	/**
@@ -69,7 +112,8 @@ public class MobileInterestStore {
 	
 	/**
 	 * Add an Interest to the Vector<Interest> for the namespace provided, iff
-	 * the namespace provided is one that has been defined for the store.
+	 * the namespace provided is one that has been defined for the store, plus
+	 * the storing for that namespace is enabled
 	 * 
 	 * @param namespace
 	 * @param interest
@@ -81,7 +125,8 @@ public class MobileInterestStore {
 	
 	/**
 	 * Add an Interest to the Vector<Interest> for the namespace provided, iff
-	 * the namespace provided is one that has been defined for the store.
+	 * the namespace provided is one that has been defined for the store, plus
+	 * the storing for that namespace is enabled
 	 * 
 	 * @param namespace
 	 * @param interest
@@ -91,7 +136,70 @@ public class MobileInterestStore {
 		if(!this.containsNamespace(namespace))
 			return false;
 		
-		((Vector<Interest>)_map.get(namespace)).add(interest);
+		MobileInterestData dataObject = (MobileInterestData)_map.get(namespace);
+		
+		if (dataObject._isStoringEnabled == false)
+			return false;
+		
+		dataObject.interests().add(interest);
 		return true;
+	}
+	
+	/**
+	 * Get all Interests stored for the namespace provided
+	 * 
+	 * @param namespace
+	 * @return the interest stored for the given namespace
+	 */
+	public Vector<Interest> getInterest(ContentName namespace) {
+		return this.getInterest(namespace.toString());
+	}
+	
+	/**
+	 * Get all Interests stored for the namespace provided
+	 * 
+	 * @param namespace
+	 * @return the interest stored for the given namespace
+	 */
+	public Vector<Interest> getInterest(String namespace) {
+		if(!this.containsNamespace(namespace))
+			return null;
+		
+		return ((MobileInterestData)_map.get(namespace)).interests();
+	}
+
+	/**
+	 * Set the remote namespace for a namespace
+	 * 
+	 * @param namespace
+	 * @param remoteName
+	 * @return true if successful or false otherwise
+	 */
+	public boolean setRemoteName(ContentName namespace, ContentName remoteName) {
+		if(!this.containsNamespace(namespace))
+			return false;
+		
+		((MobileInterestData)_map.get(namespace)).remoteName(remoteName); /**@todo null pointer bug, don't know why*/
+		return true;
+	}
+
+	/**
+	 * Get the remote namespace for a namespace
+	 * 
+	 * @param namespace
+	 * @return remoteName
+	 */
+	public ContentName getRemoteName(ContentName namespace) {
+		return this.getRemoteName(namespace.toString());
+	}
+	
+	/**
+	 * Get the remote namespace for a namespace
+	 * 
+	 * @param namespace
+	 * @return remoteName
+	 */
+	public ContentName getRemoteName(String namespace) {
+		return ((MobileInterestData)_map.get(namespace)).remoteName();
 	}
 }
