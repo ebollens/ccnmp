@@ -101,18 +101,21 @@ public class MobileInterestHandler implements Runnable, CCNInterestHandler {
 					 * in the _interestStore to the namespace defined as {B} such
 					 * that {A}/{C} is remapped to {B}/{C}
 					 */
+					Interest redirectedInterest;
 					Vector<Interest> interests = _interestStore.getInterest(namespace);
-					for (Interest orginalInterest : interests)
+					for (Interest originalInterest : interests)
 					{
-						/** 
-						 * @todo remake Interest and send
-						 * this section should probably go into a subroutine
-						 */ 
-						ContentName newName = remoteName.append(orginalInterest.name().postfix(namespace));
-						//String newNameString = remoteName.toString().concat(orginalInterest.name().postfix(namespace).toString());
+						ContentName newName = remoteName.append(originalInterest.name().postfix(namespace));
 						
 						if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
-							Log.finest(Log.FAC_REPO, "RemoteInterestHandler translate {0} into {1} and send", orginalInterest.name(), newName);
+							Log.finest(Log.FAC_REPO, "RemoteInterestHandler translate {0} into {1} and send redirected Interest", originalInterest.name(), newName);
+						
+						redirectedInterest = Interest.constructInterest(newName, originalInterest.exclude(), originalInterest.childSelector(), originalInterest.maxSuffixComponents(), originalInterest.minSuffixComponents(), null);
+						
+						/**
+						 * @todo add support for preventing interest generation loops
+						 */
+						_homeAgent.getRepositoryInterestHandler().handleInterest(redirectedInterest);
 					}
 				
 				}else{

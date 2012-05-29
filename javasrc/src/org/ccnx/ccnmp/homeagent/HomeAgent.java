@@ -53,6 +53,10 @@ public class HomeAgent implements Runnable {
 		_mobileInterestHandler = new MobileInterestHandler(this);
 	}
 	
+	public RepositoryInterestHandler getRepositoryInterestHandler(){
+		return _repositoryInterestHandler;
+	}
+	
 	/**
 	 * Call-forward to CCNMP interest handler(s) depending on the type of 
 	 * Interest. 
