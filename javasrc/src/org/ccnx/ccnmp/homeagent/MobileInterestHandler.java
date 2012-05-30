@@ -31,8 +31,6 @@ public class MobileInterestHandler implements Runnable, CCNInterestHandler {
 	 */
 	protected HomeAgent _homeAgent;
 	
-	protected HashMap _interestMap;
-	
 	protected MobileInterestStore _interestStore;
 	
 	/**
@@ -86,12 +84,14 @@ public class MobileInterestHandler implements Runnable, CCNInterestHandler {
 				Log.finest(Log.FAC_REPO, "RemoteInterestHandler::handleInterest will process: {0} -> {1} ; {2} ; {3}", interest.name(), namespace, command, remoteName);
 			
 			if (command.compareTo(COMMAND_REGISTER) == 0) {
+				
 				/** @todo the argument can also be isStoringEnabled */
 				if (!_interestStore.containsNamespace(namespace)) {
 					this.registerNamespace(namespace);
 				}
-			}
-			else if (command.compareTo(COMMAND_REDIRECT) == 0){
+				
+			}else if (command.compareTo(COMMAND_REDIRECT) == 0){
+				
 				if(_interestStore.containsNamespace(namespace)){
 					
 					//_interestStore.setRemoteName(namespace, remoteName);
@@ -108,14 +108,11 @@ public class MobileInterestHandler implements Runnable, CCNInterestHandler {
 						ContentName newName = remoteName.append(originalInterest.name().postfix(namespace));
 						
 						if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
-							Log.finest(Log.FAC_REPO, "RemoteInterestHandler translate {0} into {1} and send redirected Interest", originalInterest.name(), newName);
+							Log.finest(Log.FAC_REPO, "RemoteInterestHandler translating {0} into {1}", originalInterest.name(), newName);
 						
 						redirectedInterest = Interest.constructInterest(newName, originalInterest.exclude(), originalInterest.childSelector(), originalInterest.maxSuffixComponents(), originalInterest.minSuffixComponents(), null);
 						
-						/**
-						 * @todo add support for preventing interest generation loops
-						 */
-						_homeAgent.getRepositoryInterestHandler().handleInterest(redirectedInterest);
+						_homeAgent.redirectInterest(redirectedInterest, originalInterest);
 					}
 				
 				}else{
@@ -126,6 +123,7 @@ public class MobileInterestHandler implements Runnable, CCNInterestHandler {
 						Log.finest(Log.FAC_REPO, "RemoteInterestHandler does not support CCNMP for namespace: {0}", namespace);
 				
 				}
+				
 			}
 			else if (command.compareTo(COMMAND_REMOVE) == 0) {
 				

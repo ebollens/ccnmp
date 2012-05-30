@@ -4,6 +4,7 @@ import java.util.logging.Level;
 import org.ccnx.ccn.impl.repo.RepositoryInterestHandler;
 import org.ccnx.ccn.impl.repo.RepositoryServer;
 import org.ccnx.ccn.impl.support.Log;
+import org.ccnx.ccn.protocol.ContentObject;
 import org.ccnx.ccn.protocol.Interest;
 import org.ccnx.ccnmp.CCNMP;
 
@@ -39,6 +40,8 @@ public class HomeAgent implements Runnable {
 	 */
 	protected MobileInterestHandler _mobileInterestHandler;
 	
+	protected MobileDataHandler _mobileDataHandler;
+	
 	/**
 	 * Constructor for HomeAgent.
 	 * 
@@ -51,6 +54,7 @@ public class HomeAgent implements Runnable {
 		_repositoryServer = server;
 		_repositoryInterestHandler = interestHandler;
 		_mobileInterestHandler = new MobileInterestHandler(this);
+		_mobileDataHandler = new MobileDataHandler(this);
 	}
 	
 	public RepositoryInterestHandler getRepositoryInterestHandler(){
@@ -76,7 +80,32 @@ public class HomeAgent implements Runnable {
 		if (Log.isLoggable(Log.FAC_REPO, Level.FINER))
 			Log.finer(Log.FAC_REPO, "HomeAgent handling: {0}", interest.name());
 		_mobileInterestHandler.handleInterest(interest);
-		return false;
+		return true;
+	}
+	
+	public boolean redirectInterest(Interest interest, Interest originalInterest){
+						
+		if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
+			Log.finest(Log.FAC_REPO, "HomeAgent reissuing {0} for {1}", interest.name(), originalInterest.name());
+			
+		/**
+		 * @todo add support for preventing interest generation loops
+		 */
+		_repositoryInterestHandler.handleInterest(interest);
+		
+		_mobileDataHandler.registerRemoteInterest(interest, originalInterest);
+		
+		return true;
+	}
+	
+	public boolean handleContent(Interest interest, ContentObject content){
+		
+		if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
+			Log.finest(Log.FAC_REPO, "HomeAgent considering if {0} is remote mapping", interest.name());
+			
+		_mobileDataHandler.handleContent(interest, content);
+		
+		return true;
 	}
 
 	/**
