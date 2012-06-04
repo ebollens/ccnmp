@@ -1,15 +1,14 @@
 package org.ccnx.ccnmp.homeagent;
 
+import java.io.IOException;
 import java.util.*;
 import java.util.logging.Level;
 import org.ccnx.ccn.CCNInterestHandler;
-import org.ccnx.ccn.impl.InterestTable;
-import org.ccnx.ccn.impl.InterestTable.Entry;
 import org.ccnx.ccn.impl.support.Log;
-import org.ccnx.ccn.protocol.Component;
 import org.ccnx.ccn.protocol.ContentName;
+import org.ccnx.ccn.protocol.ContentObject;
 import org.ccnx.ccn.protocol.Interest;
-import org.ccnx.ccn.protocol.MalformedContentNameStringException;
+import org.ccnx.ccnmp.CCNMP;
 
 /**
  * RemoteInterestHandler is responsible for queuing Interest that could not be
@@ -20,11 +19,6 @@ import org.ccnx.ccn.protocol.MalformedContentNameStringException;
  */
 public class MobileInterestHandler implements Runnable, CCNInterestHandler {
 	
-	public static final String COMMAND_ROOT = "ccnmp";
-	public static final String COMMAND_REGISTER = "rg";
-	public static final String COMMAND_REDIRECT = "rd";
-	public static final String COMMAND_REGISTERREDIRECT = "rr";
-	public static final String COMMAND_REMOVE = "rm";
 
 	/**
 	 * Reference to the HomeAgent that instantiated this object.
@@ -66,35 +60,58 @@ public class MobileInterestHandler implements Runnable, CCNInterestHandler {
 	@Override
 	public boolean handleInterest(Interest interest) {
 		
-		if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
-			Log.finest(Log.FAC_REPO, "RemoteInterestHandler handling: {0}", interest.name());
+		Log.finest(Log.FAC_REPO, "RemoteInterestHandler handling: {0}", interest.name());
 		
-		Component component = new Component(COMMAND_ROOT);
-		int idx;
-		
-		if((idx = interest.name().containsWhere(component)) > -1 &&
-			idx + 2 < interest.name().count()){
-			
-			// For {A}/ccnmp/<command>/{B}, namespace is {A}, remoteName is {B}
+		int idx = interest.name().containsWhere(CCNMP.COMMAND_ROOT.getBytes());
+		if(idx > -1) {
+			/*
+			 * This is a CCNMP command, handle it 
+			 * Command format: {A}/ccnmp/<command>[/{args}]/<timestamp>
+			 * the component after ccnmp(idx) is the actual command
+			 * {A} is the namespace
+			 * CCNMP command always ends with a timestamp to ensure no caching, 
+			 * need to be stripped 
+			 */
+			if (idx + 2 > interest.name().count() - 1) {
+				// idx starts at 0, so count need to -1, a valid command need at
+				// least 3 components: CCNMP.COMMAND_ROOT, command, timestamp
+				// TODO against certain attack?
+				Log.warning(Log.FAC_REPO, "RemoteInterestHandler::handleInterest has encountered invalid command interest: {0}", interest.name());
+				return false;
+			}
 			ContentName namespace = interest.name().cut(idx);
 			String command = interest.name().stringComponent(idx+1);
-			ContentName remoteName = interest.name().right(idx+2);
+			ContentName arguments = interest.name().right(idx+2);
+			arguments = arguments.cut(arguments.count()-1); // cut timestamp
 			
-			if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
-				Log.finest(Log.FAC_REPO, "RemoteInterestHandler::handleInterest will process: {0} -> {1} ; {2} ; {3}", interest.name(), namespace, command, remoteName);
+			Log.finest(Log.FAC_REPO, "RemoteInterestHandler::handleInterest will process: {0} -> {1} ; {2} ; {3}", interest.name(), namespace, command, arguments);
 			
-			if (command.compareTo(COMMAND_REGISTER) == 0) {
+			if (command.compareTo(CCNMP.COMMAND_REGISTER) == 0) {
+				// {A}/ccnmp/rg, no arguments
 				
 				/** @todo the argument can also be isStoringEnabled */
 				if (!_interestStore.containsNamespace(namespace)) {
 					this.registerNamespace(namespace);
+					
+					try {
+						ContentObject object = ContentObject.buildContentObject(interest.name(), CCNMP.RESPONSE_SUCCESS.getBytes());
+						
+						_homeAgent.getHandle().put(object);
+						
+						Log.finest(Log.FAC_REPO, "RemoteInterestHandler is sending back acknowledgement.");
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
 				}
 				
-			}else if (command.compareTo(COMMAND_REDIRECT) == 0){
+			}else if (command.compareTo(CCNMP.COMMAND_REDIRECT) == 0){
+				// {A}/ccnmp/rd/{B}, {B} is the remote namespace
+				ContentName remoteName = arguments;
 				
 				if(_interestStore.containsNamespace(namespace)){
-					
-					//_interestStore.setRemoteName(namespace, remoteName);
+										
+					_interestStore.setRemoteName(namespace, remoteName);
 					
 					/** 
 					 * given {A}/ccnmp/{B}, issue all interests in {A} stored
@@ -102,22 +119,52 @@ public class MobileInterestHandler implements Runnable, CCNInterestHandler {
 					 * that {A}/{C} is remapped to {B}/{C}
 					 */
 					Interest redirectedInterest;
-					Vector<Interest> interests = _interestStore.getInterest(namespace);
+					Vector<Interest> interests = _interestStore.getInterests(namespace);
 					for (Interest originalInterest : interests)
 					{
 						ContentName newName = remoteName.append(originalInterest.name().postfix(namespace));
 						
-						if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
-							Log.finest(Log.FAC_REPO, "RemoteInterestHandler translating {0} into {1}", originalInterest.name(), newName);
+						Log.finest(Log.FAC_REPO, "RemoteInterestHandler translating {0} into {1}", originalInterest.name(), newName);
 						
 						redirectedInterest = Interest.constructInterest(newName, originalInterest.exclude(), originalInterest.childSelector(), originalInterest.maxSuffixComponents(), originalInterest.minSuffixComponents(), null);
 						
-						_homeAgent.redirectInterest(redirectedInterest, originalInterest);
+						try {
+							_homeAgent.redirectInterest(redirectedInterest, originalInterest);
+						} catch (IOException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						}
+					}
+					
+					// TODO may want to add back removed interests if no response
+					_interestStore.removeInterests(namespace);
+					Log.finest(Log.FAC_REPO, "Interest storage cleared");
+					
+					try {
+						ContentObject object = ContentObject.buildContentObject(interest.name(), CCNMP.RESPONSE_SUCCESS.getBytes());
+						
+						_homeAgent.getHandle().put(object);
+						
+						Log.finest(Log.FAC_REPO, "RemoteInterestHandler is sending back acknowledgement.");
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
 					}
 				
 				}else{
-					
 					// Do nothing if the namespace is not registered
+					
+					try {
+						ContentObject object = ContentObject.buildContentObject(interest.name(), CCNMP.RESPONSE_FAILURE.getBytes());
+						
+						_homeAgent.getHandle().put(object);
+						
+						Log.finest(Log.FAC_REPO, "RemoteInterestHandler is sending back error report.");
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					
 					
 					if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
 						Log.finest(Log.FAC_REPO, "RemoteInterestHandler does not support CCNMP for namespace: {0}", namespace);
@@ -125,12 +172,12 @@ public class MobileInterestHandler implements Runnable, CCNInterestHandler {
 				}
 				
 			}
-			else if (command.compareTo(COMMAND_REMOVE) == 0) {
+			else if (command.compareTo(CCNMP.COMMAND_REMOVE) == 0) {
 				
 			}
 			else {
 				if (Log.isLoggable(Log.FAC_REPO, Level.FINE))
-					Log.finest(Log.FAC_REPO, "RemoteInterestHandler has encountered invalid command: {0}", command);
+					Log.warning(Log.FAC_REPO, "RemoteInterestHandler::handleInterest has encountered invalid command: {0}", command);
 			}
 			
 			

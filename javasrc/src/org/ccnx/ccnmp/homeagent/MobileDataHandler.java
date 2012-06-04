@@ -4,10 +4,13 @@
  */
 package org.ccnx.ccnmp.homeagent;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Vector;
 import java.util.logging.Level;
 import org.ccnx.ccn.impl.support.Log;
+import org.ccnx.ccn.io.CCNFileInputStream;
+import org.ccnx.ccn.io.CCNFileOutputStream;
 import org.ccnx.ccn.protocol.ContentObject;
 import org.ccnx.ccn.protocol.Interest;
 
@@ -74,7 +77,7 @@ public class MobileDataHandler implements Runnable {
 		
 	}
 	
-	public boolean handleContent(Interest interest, ContentObject content){
+	public boolean handleContent(ContentObject data, Interest interest){
 		
 		String interestName = interest.getContentName().toString();
 		
@@ -92,6 +95,11 @@ public class MobileDataHandler implements Runnable {
 			/**
 			 * @todo actually do something when we get a ContentObject
 			 */
+			try {
+				CCNFileInputStream ccnin = new CCNFileInputStream(null, _agent.getHandle());
+			} catch (IOException e) {
+				return false;
+			}
 		}
 		
 		

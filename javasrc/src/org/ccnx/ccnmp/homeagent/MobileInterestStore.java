@@ -60,6 +60,7 @@ public class MobileInterestStore {
 		public void remoteName(ContentName remoteName) { _remoteName = new ContentName(remoteName); }
 		
 		public Vector<Interest> interests() { return _interests; }
+		public void removeInterests() {_interests.clear();}
 	}
 	
 	/**
@@ -151,8 +152,8 @@ public class MobileInterestStore {
 	 * @param namespace
 	 * @return the interest stored for the given namespace
 	 */
-	public Vector<Interest> getInterest(ContentName namespace) {
-		return this.getInterest(namespace.toString());
+	public Vector<Interest> getInterests(ContentName namespace) {
+		return this.getInterests(namespace.toString());
 	}
 	
 	/**
@@ -161,7 +162,7 @@ public class MobileInterestStore {
 	 * @param namespace
 	 * @return the interest stored for the given namespace
 	 */
-	public Vector<Interest> getInterest(String namespace) {
+	public Vector<Interest> getInterests(String namespace) {
 		if(!this.containsNamespace(namespace))
 			return null;
 		
@@ -176,10 +177,20 @@ public class MobileInterestStore {
 	 * @return true if successful or false otherwise
 	 */
 	public boolean setRemoteName(ContentName namespace, ContentName remoteName) {
+		return this.setRemoteName(namespace.toString(), remoteName);
+	}
+	/**
+	 * Set the remote namespace for a namespace
+	 * 
+	 * @param namespace
+	 * @param remoteName
+	 * @return true if successful or false otherwise
+	 */
+	public boolean setRemoteName(String namespace, ContentName remoteName) {
 		if(!this.containsNamespace(namespace))
 			return false;
 		
-		((MobileInterestData)_map.get(namespace)).remoteName(remoteName); /**@todo null pointer bug, don't know why*/
+		((MobileInterestData)_map.get(namespace)).remoteName(remoteName);
 		return true;
 	}
 
@@ -201,5 +212,17 @@ public class MobileInterestStore {
 	 */
 	public ContentName getRemoteName(String namespace) {
 		return ((MobileInterestData)_map.get(namespace)).remoteName();
+	}
+
+	public boolean removeInterests(ContentName namespace) {
+		return this.removeInterests(namespace.toString());
+		
+	}
+	public boolean removeInterests(String namespace) {
+		if(!this.containsNamespace(namespace))
+			return false;
+		
+		((MobileInterestData)_map.get(namespace)).removeInterests();
+		return true;
 	}
 }

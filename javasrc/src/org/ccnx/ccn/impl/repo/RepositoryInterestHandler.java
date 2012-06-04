@@ -126,13 +126,6 @@ public class RepositoryInterestHandler extends QueuedContentHandler<Interest> im
 					Log.finest(Log.FAC_REPO, "Satisfying interest: {0} with content {1}", interest, content.name());
 				_handle.put(content);
 				
-				/** 
-				 * For all content received, pass to HomeAgent for processing if
-				 * it should remap this content as well.
-				 */
-				if(HomeAgent.ENABLED)
-					_homeAgent.handleContent(interest, content);
-				
 			} else {
 				if (Log.isLoggable(Log.FAC_REPO, Level.FINE))
 					Log.fine(Log.FAC_REPO, "Unsatisfied interest: {0}", interest);

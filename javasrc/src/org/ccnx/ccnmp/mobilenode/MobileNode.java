@@ -6,9 +6,14 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.security.InvalidKeyException;
+import java.security.PrivateKey;
+import java.security.SignatureException;
+
 import org.ccnx.ccn.CCNContentHandler;
 import org.ccnx.ccn.CCNHandle;
 import org.ccnx.ccn.CCNInterestHandler;
+import org.ccnx.ccn.KeyManager;
 import org.ccnx.ccn.config.ConfigurationException;
 import org.ccnx.ccn.impl.support.Log;
 import org.ccnx.ccn.io.CCNFileOutputStream;
@@ -18,12 +23,16 @@ import org.ccnx.ccn.protocol.CCNTime;
 import org.ccnx.ccn.protocol.ContentName;
 import org.ccnx.ccn.protocol.ContentObject;
 import org.ccnx.ccn.protocol.Interest;
+import org.ccnx.ccn.protocol.KeyLocator;
 import org.ccnx.ccn.protocol.MalformedContentNameStringException;
+import org.ccnx.ccn.protocol.PublisherPublicKeyDigest;
+import org.ccnx.ccn.protocol.SignedInfo;
+import org.ccnx.ccn.protocol.SignedInfo.ContentType;
 import org.ccnx.ccnmp.CCNMP;
 
 public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandler {
 	
-	static int BUF_SIZE = 4096;
+	private static int BUF_SIZE = 4096;
 	
 	protected ContentName _homePrefix;
 	protected ContentName _remotePrefix;
@@ -71,6 +80,10 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 
 			while((inputline = br.readLine()) != null) {
 				inputline = inputline.trim();
+				if (inputline.compareTo("exit") == 0) {
+					break;
+				}
+
 				String[] tokens = inputline.split(" ");
 				if (tokens.length < 2) {
 					System.err.println("Invalid command" + inputline);
@@ -148,6 +161,7 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 				continue;
 			} 
 		}
+		Log.info("Thread ends");
 	}
 	
     /**
@@ -158,14 +172,14 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 		if (null != _handle) {
 			_handle.unregisterFilter(_remotePrefix, this);
 			Log.info("Shutting down file proxy for " + _filePrefix + " on CCNx namespace " + _remotePrefix + "...");
-			System.out.println("Shutting down file proxy for " + _filePrefix + " on CCNx namespace " + _remotePrefix + "...");
 		}
 		_finished = true;
+		_thd.interrupt();
 	}
 
 	@Override
 	public Interest handleContent(ContentObject data, Interest interest) {
-		Log.info(Log.FAC_REPO, "MobileNode: get content {0} for interest {1}.",data, interest);
+		Log.info("MobileNode: get content {0} for interest {1}.",data, interest);
 		return null;
 	}
 
@@ -180,6 +194,24 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 			Log.info("Unexpected: got an interest not matching our prefix (which is {0})", _remotePrefix);
 			return false;
 		}
+
+//		ContentObject content = generateContent(interest);
+//		
+//		if (content != null) {
+//			Log.info("Satisfying interest: {0} with content {1}", interest, content);
+//			try {
+//				_handle.put(content);
+//			} catch (IOException e) {
+//				Log.warning("IOException {0}", e);
+//				return false;
+//			}
+//		} else {
+//			Log.info("Cannot satify interest {0}", interest.name());
+//			return false;
+//		}
+//		
+//		return true;
+		
 
 		// We see interests for all our segments, and the header. We want to only
 		// handle interests for the first segment of a file, and not the first segment
@@ -201,9 +233,14 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 			return false;
 		}
 	}
-	
+
 	public boolean move(String newRemoteName) throws MalformedContentNameStringException, IOException {
+		_handle.unregisterFilter(_remotePrefix, this);
+		
 		_remotePrefix = ContentName.fromURI(newRemoteName);
+
+		_handle.registerFilter(_remotePrefix, this);
+		
 		return redirect();
 	}
 	
@@ -213,9 +250,65 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 		assert (fileNamePostfix != null);	// _remotePrefix is not a prefix of name
 
 		File fileToWrite = new File(_rootDirectory, fileNamePostfix.toString());
-		Log.finest(Log.FAC_REPO, "MobileNode: file postfix {0}, resulting path name {1}", fileNamePostfix, fileToWrite.getAbsolutePath());
+		Log.info("MobileNode: file postfix {0}, resulting path name {1}", fileNamePostfix, fileToWrite.getAbsolutePath());
 		return fileToWrite;
 	}
+	
+	protected ContentObject generateContent(Interest interest) {
+		
+		File fileToWrite = ccnNameToFilePath(interest.name());
+		Log.finest("MobileNode: extracted request for file: " + fileToWrite.getAbsolutePath() + " exists? {0}", fileToWrite.exists());
+		if (!fileToWrite.exists()) {
+			Log.warning("MobileNode: File {0} does not exist. Ignoring request.", fileToWrite.getAbsoluteFile());
+			return null;
+		}
+		
+		FileInputStream fis = null;
+		try {
+			fis = new FileInputStream(fileToWrite);
+		} catch (FileNotFoundException fnf) {
+			Log.warning("MobileNode: file we expected to exist doesn't exist: {0}.", fileToWrite.getAbsolutePath());
+			return null;
+		}
+
+		long fileLength = fileToWrite.length();
+		
+		if (fileLength > Integer.MAX_VALUE) {
+			Log.warning("File is too large.");
+			return null;
+		}
+
+		byte [] fileContent = new byte[(int) fileLength];
+		try {
+			fis.read(fileContent);
+			fis.close();
+		} catch (IOException e) {
+			Log.warning("File reading error: {0}", e);
+			return null;
+		}
+		Log.finest("fileContent: {0}", fileContent.toString());
+
+		ContentName name = new ContentName(interest.name());
+		KeyManager keyManager = KeyManager.getDefaultKeyManager();
+		PrivateKey signingKey = keyManager.getDefaultSigningKey();
+		PublisherPublicKeyDigest publisher = keyManager.getPublisherKeyID(signingKey);
+		KeyLocator locator = keyManager.getKeyLocator(signingKey);
+		SignedInfo signedInfo = new SignedInfo(publisher, ContentType.DATA, locator);
+		
+		ContentObject co;
+		try {
+			co = new ContentObject(name, signedInfo, fileContent, signingKey);
+		} catch (InvalidKeyException e) {
+			Log.warning("Content generation failed: {0}", e);
+			return null;
+		} catch (SignatureException e) {
+			Log.warning("Content generation failed: {0}", e);
+			return null;
+		}
+		
+		return co;
+	}
+	
 	
 	/**
 	 * Actually write the file; should probably run in a separate thread.
@@ -226,9 +319,9 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 	protected boolean writeFile(Interest outstandingInterest) throws IOException {
 		
 		File fileToWrite = ccnNameToFilePath(outstandingInterest.name());
-		Log.finest(Log.FAC_REPO, "MobileNode: extracted request for file: " + fileToWrite.getAbsolutePath() + " exists? ", fileToWrite.exists());
+		Log.info("MobileNode: extracted request for file: " + fileToWrite.getAbsolutePath() + " exists? ", fileToWrite.exists());
 		if (!fileToWrite.exists()) {
-			Log.warning(Log.FAC_REPO, "MobileNode: File {0} does not exist. Ignoring request.", fileToWrite.getAbsoluteFile());
+			Log.warning("MobileNode: File {0} does not exist. Ignoring request.", fileToWrite.getAbsoluteFile());
 			return false;
 		}
 		
@@ -236,7 +329,7 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 		try {
 			fis = new FileInputStream(fileToWrite);
 		} catch (FileNotFoundException fnf) {
-			Log.warning(Log.FAC_REPO, "MobileNode: file we expected to exist doesn't exist: {0}.", fileToWrite.getAbsolutePath());
+			Log.warning("MobileNode: file we expected to exist doesn't exist: {0}.", fileToWrite.getAbsolutePath());
 			return false;
 		}
 		
@@ -269,14 +362,14 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 		try {
 			name = _homePrefix.append(CCNMP.COMMAND_ROOT + "/"+ CCNMP.COMMAND_REGISTER);
 		} catch (MalformedContentNameStringException e) {
-			Log.warning(Log.FAC_REPO, "MobileNode register commnad generation failed");
+			Log.warning("MobileNode register commnad generation failed");
 			return false;
 		}
 		CCNTime timestamp = new CCNTime();
 		ContentName versionedName = new ContentName(name, timestamp);
 		Interest interest = new Interest(versionedName);
 		_handle.expressInterest(interest, this);
-		Log.info(Log.FAC_REPO, "MobileNode: sending interest {0}.", interest);
+		Log.info("MobileNode: sending interest {0}.", interest);
 		return true;
 	}
 	
@@ -285,14 +378,14 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 		try {
 			name = _homePrefix.append(CCNMP.COMMAND_ROOT + "/"+ CCNMP.COMMAND_REDIRECT +  _remotePrefix.toString());
 		} catch (MalformedContentNameStringException e) {
-			Log.warning(Log.FAC_REPO, "MobileNode register commnad generation failed");
+			Log.warning("MobileNode register commnad generation failed");
 			return false;
 		}
 		CCNTime timestamp = new CCNTime();
 		ContentName versionedName = new ContentName(name, timestamp);
 		Interest interest = new Interest(versionedName);
 		_handle.expressInterest(interest, this);
-		Log.info(Log.FAC_REPO, "MobileNode: requesting redirection for {0}.", _remotePrefix);
+		Log.info("MobileNode: requesting redirection for {0}.", _remotePrefix);
 		return true;
 	}
 

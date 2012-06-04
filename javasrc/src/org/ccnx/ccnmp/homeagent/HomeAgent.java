@@ -1,9 +1,17 @@
 package org.ccnx.ccnmp.homeagent;
 
+import java.io.IOException;
 import java.util.logging.Level;
+
+import org.ccnx.ccn.CCNContentHandler;
+import org.ccnx.ccn.CCNHandle;
 import org.ccnx.ccn.impl.repo.RepositoryInterestHandler;
 import org.ccnx.ccn.impl.repo.RepositoryServer;
 import org.ccnx.ccn.impl.support.Log;
+import org.ccnx.ccn.io.CCNFileInputStream;
+import org.ccnx.ccn.io.CCNFileOutputStream;
+import org.ccnx.ccn.protocol.CCNTime;
+import org.ccnx.ccn.protocol.ContentName;
 import org.ccnx.ccn.protocol.ContentObject;
 import org.ccnx.ccn.protocol.Interest;
 import org.ccnx.ccnmp.CCNMP;
@@ -13,7 +21,7 @@ import org.ccnx.ccnmp.CCNMP;
  * 
  * @author ebollens
  */
-public class HomeAgent implements Runnable {
+public class HomeAgent implements Runnable, CCNContentHandler {
 	
 	/**
 	 * Set true if the CCNMP home agent should be enabled. This requires that
@@ -83,7 +91,7 @@ public class HomeAgent implements Runnable {
 		return true;
 	}
 	
-	public boolean redirectInterest(Interest interest, Interest originalInterest){
+	public boolean redirectInterest(Interest interest, Interest originalInterest) throws IOException{
 						
 		if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
 			Log.finest(Log.FAC_REPO, "HomeAgent reissuing {0} for {1}", interest.name(), originalInterest.name());
@@ -91,21 +99,47 @@ public class HomeAgent implements Runnable {
 		/**
 		 * @todo add support for preventing interest generation loops
 		 */
-		_repositoryInterestHandler.handleInterest(interest);
+		//_repositoryInterestHandler.handleInterest(interest);
 		
-		_mobileDataHandler.registerRemoteInterest(interest, originalInterest);
+		//_repositoryServer.getHandle().expressInterest(interest, this);
+		
+		//_mobileDataHandler.registerRemoteInterest(interest, originalInterest);
+
+		ContentName originalName = new ContentName(originalInterest.name(), new CCNTime());
+
+		CCNFileInputStream ccnin = new CCNFileInputStream(interest.name(), _repositoryServer.getHandle());
+		CCNFileOutputStream ccnout = new CCNFileOutputStream(originalName, _repositoryServer.getHandle());
+		
+		// ccnout.addOutstandingInterest(originalInterest);
+		
+		int BUF_SIZE = 1024;
+		byte [] buffer = new byte[BUF_SIZE];
+
+		int readcount = 0;
+		while ((readcount = ccnin.read(buffer)) != -1){
+			ccnout.write(buffer, 0, readcount);
+			ccnout.flush();
+		}
+		//int read = ccnin.read(buffer);
+		//while (read >= 0) {
+		//	ccnout.write(buffer, 0, read);
+		//	read = ccnin.read(buffer);
+		//} 
+		ccnin.close();
+		ccnout.close(); // will flush
 		
 		return true;
 	}
-	
-	public boolean handleContent(Interest interest, ContentObject content){
+
+	@Override
+	public Interest handleContent(ContentObject data, Interest interest) {
 		
-		if (Log.isLoggable(Log.FAC_REPO, Level.FINEST))
-			Log.finest(Log.FAC_REPO, "HomeAgent considering if {0} is remote mapping", interest.name());
+		Log.finest(Log.FAC_REPO, "HomeAgent considering if {0} is remote mapping", interest.name());
 			
-		_mobileDataHandler.handleContent(interest, content);
+		if (!_mobileDataHandler.handleContent(data, interest))
+			Log.warning(Log.FAC_REPO, "HomeAgent::handleContent cannot find mapping for {0}", interest.name());
 		
-		return true;
+		return null;
 	}
 
 	/**
@@ -114,6 +148,10 @@ public class HomeAgent implements Runnable {
 	@Override
 	public void run() {
 		
+	}
+	
+	public CCNHandle getHandle(){
+		return _repositoryServer.getHandle();
 	}
 
 }
