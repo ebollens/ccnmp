@@ -28,6 +28,10 @@ public class MobileInterestStore {
 		 */
 		protected boolean _isStoringEnabled;
 		/**
+		 * Whether the HomeAgent should forward the interest ASAP (when arrives)
+		 */
+		protected boolean _isForwardASAPEnabled;
+		/**
 		 * The remote namespace (on foreign agent) of the namespace
 		 */
 		protected ContentName _remoteName;
@@ -41,20 +45,25 @@ public class MobileInterestStore {
 		}
 		
 		/** @todo  may replace null with empty name */
-		public MobileInterestData(boolean isStoringEnabled) {
-			_isStoringEnabled = isStoringEnabled;
+		public MobileInterestData(boolean isForwardASAPEnabled) {
+			_isStoringEnabled = true;
+			_isForwardASAPEnabled = isForwardASAPEnabled;
 			_remoteName = null;
 			_interests = new Vector<Interest>();
 		}
 		
-		public MobileInterestData(boolean isStoringEnabled, ContentName remoteName) {
-			_isStoringEnabled = isStoringEnabled;
+		public MobileInterestData(boolean isForwardASAPEnabled, ContentName remoteName) {
+			_isStoringEnabled = true;
+			_isForwardASAPEnabled = isForwardASAPEnabled;
 			_remoteName = new ContentName(remoteName);
 			_interests = new Vector<Interest>();
 		}
 		
 		public boolean isStoringEnabled() { return _isStoringEnabled; }
 		public void isStoringEnabled(boolean isStoringEnabled) { _isStoringEnabled = isStoringEnabled; }
+		
+		public boolean isForwardASAPEnabled() { return _isForwardASAPEnabled; }
+		public void isForwardASAPEnabled(boolean isForwardASAPEnabled) { _isForwardASAPEnabled = isForwardASAPEnabled; }
 		
 		public ContentName remoteName() { return _remoteName; }
 		public void remoteName(ContentName remoteName) { _remoteName = new ContentName(remoteName); }
@@ -79,18 +88,38 @@ public class MobileInterestStore {
 	 * Add a namespace that the MobileInterestStore will accept Interests for.
 	 * 
 	 * @param key 
+	 * @param isForwardASAPEnabled 
 	 */
-	public void addNamespace(ContentName key){
-		this.addNamespace(key.toString());
+	public void addNamespace(ContentName key, boolean isForwardASAPEnabled){
+		this.addNamespace(key.toString(), isForwardASAPEnabled);
 	}
 	
 	/**
 	 * Add a namespace that the MobileInterestStore will accept Interests for.
 	 * 
 	 * @param key 
+	 * @param isForwardASAPEnabled 
 	 */
-	public void addNamespace(String key){
-		_map.put(key, new MobileInterestData());
+	public void addNamespace(String key, boolean isForwardASAPEnabled){
+		_map.put(key, new MobileInterestData(isForwardASAPEnabled));
+	}
+	
+	/**
+	 * Remove a namespace that the MobileInterestStore will accept Interests for.
+	 * 
+	 * @param key 
+	 */
+	public void removeNamespace(ContentName key){
+		this.removeNamespace(key.toString());
+	}
+	
+	/**
+	 * Remove a namespace that the MobileInterestStore will accept Interests for.
+	 * 
+	 * @param key 
+	 */
+	public void removeNamespace(String key){
+		_map.remove(key);
 	}
 	
 	/**
@@ -140,6 +169,9 @@ public class MobileInterestStore {
 		MobileInterestData dataObject = (MobileInterestData)_map.get(namespace);
 		
 		if (dataObject._isStoringEnabled == false)
+			return false;
+		
+		if (dataObject.interests().contains(interest))
 			return false;
 		
 		dataObject.interests().add(interest);
@@ -210,8 +242,29 @@ public class MobileInterestStore {
 	 * @param namespace
 	 * @return remoteName
 	 */
+	
 	public ContentName getRemoteName(String namespace) {
 		return ((MobileInterestData)_map.get(namespace)).remoteName();
+	}
+
+	/**
+	 * Get the isForwardASAPEnabled property for a namespace
+	 * 
+	 * @param namespace
+	 * @return remoteName
+	 */
+	public boolean isForwardASAPEnabled(ContentName namespace) {
+		return this.isForwardASAPEnabled(namespace.toString());
+	}
+	
+	/**
+	 * Get the isForwardASAPEnabled property for a namespace
+	 * 
+	 * @param namespace
+	 * @return remoteName
+	 */
+	public boolean isForwardASAPEnabled(String namespace) {
+		return ((MobileInterestData)_map.get(namespace)).isForwardASAPEnabled();
 	}
 
 	public boolean removeInterests(ContentName namespace) {

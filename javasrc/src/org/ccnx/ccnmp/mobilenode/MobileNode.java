@@ -36,6 +36,7 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 	
 	protected ContentName _homePrefix;
 	protected ContentName _remotePrefix;
+	protected boolean _isForwardASAPEnabled;
 	protected long _refreshRate;
 	protected String _filePrefix;
 	protected File _rootDirectory;
@@ -45,7 +46,7 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 	private boolean _finished;
 	
 	public static void usage() {
-		System.err.println("usage: MobileNode <root directory> <home namespace> <refresh rate in sec> [<foreign namespace> default:<home namespace>]");
+		System.err.println("usage: MobileNode <root directory> <home namespace> <refresh rate in sec> [<isForwardASAPEnabled>default:false <foreign namespace>default:<home namespace>]");
 	}
 
 	/**
@@ -61,13 +62,14 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 		String filePrefix = args[0];
 		String homePrefix = args[1];
 		long refreshRate = Integer.parseInt(args[2]) * 1000;
-		String remotePrefix = (args.length > 3)? args[3]: homePrefix;
+		boolean isForwardASAPEnabled = (args.length > 3)? args[3].compareTo("true")==0: false;
+		String remotePrefix = (args.length > 4)? args[4]: homePrefix;
 		
 		try {
 			MobileNode mn;
 			
 			try {
-				mn = new MobileNode(filePrefix, homePrefix, remotePrefix, refreshRate);
+				mn = new MobileNode(filePrefix, homePrefix, isForwardASAPEnabled, remotePrefix, refreshRate);
 			} catch (MalformedContentNameStringException e) {
 				System.err.println("Invalid Name String" + e);
 				return;
@@ -82,11 +84,14 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 				inputline = inputline.trim();
 				if (inputline.compareTo("exit") == 0) {
 					break;
+				} else if (inputline.compareTo("remove") == 0) {
+					mn.remove();
+					break;
 				}
 
 				String[] tokens = inputline.split(" ");
 				if (tokens.length < 2) {
-					System.err.println("Invalid command" + inputline);
+					System.err.println("Invalid command " + inputline);
 					continue;
 				}
 				
@@ -97,8 +102,8 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 						System.err.println("Invalid namespace" + tokens[1]);
 						continue;
 					}
-				} else {
-					System.err.println("Invalid command" + inputline);
+				}  else {
+					System.err.println("Invalid command " + inputline);
 					continue;
 				}
 			}
@@ -118,10 +123,11 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 		} 
 	}
 	
-	public MobileNode(String filePrefix, String homePrefix, String remotePrefix, long refreshRate) throws MalformedContentNameStringException, ConfigurationException, IOException {
+	public MobileNode(String filePrefix, String homePrefix, boolean isForwardASAPEnabled, String remotePrefix, long refreshRate) throws MalformedContentNameStringException, ConfigurationException, IOException {
 
 		_homePrefix = ContentName.fromURI(homePrefix);
 		_remotePrefix = ContentName.fromURI(remotePrefix);
+		_isForwardASAPEnabled = isForwardASAPEnabled;
 		_refreshRate = refreshRate;
 		_filePrefix = filePrefix;
 		_rootDirectory = new File(filePrefix);
@@ -168,11 +174,13 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
      * Turn off everything.
      * @throws IOException 
      */
-	public void shutdown() throws IOException {
+	public void shutdown() /*throws IOException*/ {
 		if (null != _handle) {
-			_handle.unregisterFilter(_remotePrefix, this);
+			_handle.close();
+			//_handle.unregisterFilter(_remotePrefix, this);
 			Log.info("Shutting down file proxy for " + _filePrefix + " on CCNx namespace " + _remotePrefix + "...");
 		}
+		// TODO unregister itself at homeagent
 		_finished = true;
 		_thd.interrupt();
 	}
@@ -360,7 +368,7 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 	protected boolean register() throws IOException {
 		ContentName name;
 		try {
-			name = _homePrefix.append(CCNMP.COMMAND_ROOT + "/"+ CCNMP.COMMAND_REGISTER);
+			name = _homePrefix.append(CCNMP.COMMAND_ROOT + "/"+ CCNMP.COMMAND_REGISTER + (_isForwardASAPEnabled?"/true":"/false"));
 		} catch (MalformedContentNameStringException e) {
 			Log.warning("MobileNode register commnad generation failed");
 			return false;
@@ -369,7 +377,7 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 		ContentName versionedName = new ContentName(name, timestamp);
 		Interest interest = new Interest(versionedName);
 		_handle.expressInterest(interest, this);
-		Log.info("MobileNode: sending interest {0}.", interest);
+		Log.info("MobileNode: sending registration: {0}.", name);
 		return true;
 	}
 	
@@ -378,14 +386,30 @@ public class MobileNode implements Runnable, CCNInterestHandler, CCNContentHandl
 		try {
 			name = _homePrefix.append(CCNMP.COMMAND_ROOT + "/"+ CCNMP.COMMAND_REDIRECT +  _remotePrefix.toString());
 		} catch (MalformedContentNameStringException e) {
-			Log.warning("MobileNode register commnad generation failed");
+			Log.warning("MobileNode redirect commnad generation failed");
 			return false;
 		}
 		CCNTime timestamp = new CCNTime();
 		ContentName versionedName = new ContentName(name, timestamp);
 		Interest interest = new Interest(versionedName);
 		_handle.expressInterest(interest, this);
-		Log.info("MobileNode: requesting redirection for {0}.", _remotePrefix);
+		Log.info("MobileNode: requesting redirection: {0}.", name);
+		return true;
+	}
+	
+	protected boolean remove() throws IOException {
+		ContentName name;
+		try {
+			name = _homePrefix.append(CCNMP.COMMAND_ROOT + "/"+ CCNMP.COMMAND_REMOVE);
+		} catch (MalformedContentNameStringException e) {
+			Log.warning("MobileNode remove commnad generation failed");
+			return false;
+		}
+		CCNTime timestamp = new CCNTime();
+		ContentName versionedName = new ContentName(name, timestamp);
+		Interest interest = new Interest(versionedName);
+		_handle.expressInterest(interest, this);
+		Log.info("MobileNode: removing registration: {0}.", name);
 		return true;
 	}
 
